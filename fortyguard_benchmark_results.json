@@ -1,0 +1,165 @@
+{
+  "timestamp": "2026-11-13T20:57:37.167198",
+  "summary": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "total_latency_ms": 63788,
+    "credits_used_in_test_run": 15100
+  },
+  "tests": [
+    {
+      "name": "REST: fetch-api-key-usage",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 1568,
+      "details": {
+        "status_code": 200,
+        "plan": "Premium",
+        "credits": 1000000
+      },
+      "notes": "Plan: Premium, Credits Available: 1,000,000"
+    },
+    {
+      "name": "MCP: tools/list discovery",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 4074,
+      "details": {
+        "total_tools": 11,
+        "tools": [
+          "credit_balance",
+          "env_params",
+          "heatmap",
+          "heatmap_read",
+          "monitoring",
+          "report",
+          "report_read",
+          "satellite",
+          "streetview",
+          "temperature_routing",
+          "temperature_routing_read"
+        ]
+      },
+      "notes": "Discovered 11 tools: credit_balance, env_params, heatmap, heatmap_read, monitoring, report..."
+    },
+    {
+      "name": "MCP: env_params - Phoenix, AZ (Desert)",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 5619,
+      "details": {
+        "response": "{'ok': True, 'result': {'tool': 'env_params', 'value': {'parameters': {'apparent_temperature_celsius': 40.7, 'relative_humidity_percent': 22.9, 'preci"
+      },
+      "notes": "Response status: Success"
+    },
+    {
+      "name": "MCP: env_params - Austin, TX (Subtropical)",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 7201,
+      "details": {
+        "response": "{'ok': True, 'result': {'tool': 'env_params', 'value': {'parameters': {'apparent_temperature_celsius': 37.8, 'relative_humidity_percent': 50.8, 'preci"
+      },
+      "notes": "Response status: Success"
+    },
+    {
+      "name": "MCP: env_params - Miami, FL (Tropical)",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 13327,
+      "details": {
+        "response": "{'ok': True, 'result': {'tool': 'env_params', 'value': {'parameters': {'apparent_temperature_celsius': 34.5, 'relative_humidity_percent': 74.7, 'preci"
+      },
+      "notes": "Response status: Success"
+    },
+    {
+      "name": "MCP: env_params - Las Vegas, NV (Arid)",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 8767,
+      "details": {
+        "response": "{'ok': True, 'result': {'tool': 'env_params', 'value': {'parameters': {'apparent_temperature_celsius': 40.4, 'relative_humidity_percent': 11.6, 'preci"
+      },
+      "notes": "Response status: Success"
+    },
+    {
+      "name": "MCP: temperature_routing (Full async cycle)",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 16995,
+      "details": {
+        "routes_count": 4,
+        "route_metrics": [
+          {
+            "label": "Fastest",
+            "distance_km": 10.667,
+            "duration_min": 8.34,
+            "mean_temp_c": 35.824,
+            "peak_temp_c": 36.07
+          },
+          {
+            "label": "Balanced",
+            "distance_km": 10.003,
+            "duration_min": 9.7,
+            "mean_temp_c": 35.792,
+            "peak_temp_c": 36.07
+          },
+          {
+            "label": "Option 4",
+            "distance_km": 9.987,
+            "duration_min": 9.78,
+            "mean_temp_c": 35.788,
+            "peak_temp_c": 36.07
+          },
+          {
+            "label": "Coolest",
+            "distance_km": 9.913,
+            "duration_min": 11.11,
+            "mean_temp_c": 35.759,
+            "peak_temp_c": 36.04
+          }
+        ]
+      },
+      "notes": "Generated 4 routes in 11.91s poll time."
+    },
+    {
+      "name": "Security/Bounds: International Coordinates (Dubai)",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 0,
+      "details": {
+        "result": {
+          "ok": false,
+          "error": "Location (25.2048, 55.2708) is outside supported contiguous US coverage."
+        }
+      },
+      "notes": "Correctly rejected coordinates outside contiguous US coverage."
+    },
+    {
+      "name": "Validation: Missing Required Parameters",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 1941,
+      "details": {
+        "result": "{'ok': False, 'data': {'ok': False, 'error': {'category': 'invalid_input', 'message': 'The request input is invalid.', 'retriable': False, 'field': 'longitude'}, 'trace': {'trace_id': '039eaaa458ee', "
+      },
+      "notes": "Properly rejected incomplete tool arguments."
+    },
+    {
+      "name": "Agent: Autonomous Tool Calling & Synthesis",
+      "status": "PASS",
+      "passed": true,
+      "latency_ms": 4296,
+      "details": {
+        "model": "groq:qwen/qwen3.8-27b",
+        "tools_executed": [
+          "credit_balance"
+        ]
+      },
+      "notes": "Agent invoked tool 'credit_balance' and synthesized answer."
+    }
+  ],
+  "credits_before": 934900,
+  "credits_after": 919800
+}

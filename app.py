@@ -67,6 +67,63 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Helper to unpack deeply nested environmental parameters
+def extract_environmental_metrics(data):
+    if not isinstance(data, dict):
+        return {}
+
+    val = data.get("result", {}).get("value", {}) if "result" in data else data
+    params = val.get("parameters", {}) if isinstance(val, dict) else {}
+    raw_locs = val.get("raw", {}).get("locations", []) if isinstance(val, dict) else []
+    if not raw_locs and isinstance(data, dict) and "locations" in data:
+        raw_locs = data["locations"]
+
+    loc_params = raw_locs[0].get("parameters", {}) if raw_locs else {}
+    solar = raw_locs[0].get("solar_irradiance", {}) if raw_locs else {}
+    clear_sky = solar.get("clear_sky", {}) if isinstance(solar, dict) else {}
+
+    def get_num(d, keys, default=0.0):
+        for k in keys:
+            if k in d:
+                v = d[k]
+                if isinstance(v, list) and v:
+                    return v[0] if v[0] is not None else default
+                elif isinstance(v, (int, float)):
+                    return v
+        return default
+
+    heat_index = get_num(loc_params, ["heat_index_celsius"]) or get_num(params, ["heat_index_celsius", "apparent_temperature_celsius"])
+    apparent_temp = get_num(params, ["apparent_temperature_celsius"]) or get_num(loc_params, ["apparent_temperature_celsius"])
+    wet_bulb = get_num(params, ["wet_bulb_temperature_celsius"]) or get_num(loc_params, ["wet_bulb_temperature_celsius"])
+    humidity = get_num(params, ["relative_humidity_percent"]) or get_num(loc_params, ["relative_humidity_percent"])
+    aqi = get_num(params, ["aqi_us"]) or get_num(loc_params, ["air_quality:idx"])
+
+    ghi = get_num(clear_sky, ["ghi"]) or get_num(solar, ["ghi_wm2", "ghi"])
+    dni = get_num(clear_sky, ["dni"]) or get_num(solar, ["dni_wm2", "dni"])
+    dhi = get_num(clear_sky, ["dhi"]) or get_num(solar, ["dhi_wm2", "dhi"])
+
+    pm25 = get_num(loc_params, ["air_quality_pm2p5:idx"])
+    pm10 = get_num(loc_params, ["air_quality_pm10:idx"])
+    no2 = get_num(loc_params, ["air_quality_no2:idx"])
+    o3 = get_num(loc_params, ["air_quality_o3:idx"])
+    so2 = get_num(loc_params, ["air_quality_so2:idx"])
+
+    return {
+        "heat_index": heat_index,
+        "apparent_temp": apparent_temp,
+        "wet_bulb": wet_bulb,
+        "humidity": humidity,
+        "aqi": aqi,
+        "pm25": pm25,
+        "pm10": pm10,
+        "no2": no2,
+        "o3": o3,
+        "so2": so2,
+        "ghi": ghi,
+        "dni": dni,
+        "dhi": dhi,
+    }
+
 # Initialize Session States
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -157,12 +214,10 @@ with tab1:
     user_input = st.chat_input("Ask about routes, urban heat islands, or point climate metrics...") or preset_prompt
 
     if user_input:
-        # Add user msg
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        # Agent Execution
         with st.chat_message("assistant"):
             with st.spinner("Agent analyzing and executing MCP tools..."):
                 try:
@@ -180,12 +235,10 @@ with tab1:
                                 st.markdown(f"**Tool:** `{trace.get('name')}`")
                                 st.json(trace.get("arguments", {}))
 
-                    # If routes were returned, render preview map
                     if "routes" in artifacts and artifacts["routes"]:
                         st.session_state.last_routes = artifacts["routes"]
                         st.success("✅ Multi-criteria routes generated. Switch to the Routing Studio tab for full visualization!")
 
-                    # Update history
                     st.session_state.chat_history.append({
                         "role": "assistant",
                         "content": response_text,
@@ -256,7 +309,6 @@ with tab2:
             routes = st.session_state.last_routes
             st.subheader(f"Discovered Routes ({len(routes)})")
 
-            # Route Metrics Cards
             cols = st.columns(len(routes))
             color_map = {
                 "Fastest": "#0284c7",
@@ -285,12 +337,11 @@ with tab2:
 
             st.write("")
 
-            # Folium Map
+            # Map using OpenStreetMap to avoid "API KEY REQUIRED" watermark
             center_lat = (o_lat + d_lat) / 2
             center_lon = (o_lon + d_lon) / 2
-            m = folium.Map(location=[center_lat, center_lon], zoom_start=13, tiles="CartoDB dark_matter")
+            m = folium.Map(location=[center_lat, center_lon], zoom_start=13, tiles="OpenStreetMap")
 
-            # Add Origin & Destination Markers
             folium.Marker([o_lat, o_lon], tooltip="Origin", icon=folium.Icon(color="green", icon="play")).add_to(m)
             folium.Marker([d_lat, d_lon], tooltip="Destination", icon=folium.Icon(color="red", icon="flag")).add_to(m)
 
@@ -298,7 +349,6 @@ with tab2:
                 p = r.get("properties", {})
                 label = p.get("label", f"Route {idx+1}")
                 coords = r.get("geometry", {}).get("coordinates", [])
-                # GeoJSON coordinates are [lon, lat], folium expects [lat, lon]
                 lat_lngs = [[pt[1], pt[0]] for pt in coords]
                 c = color_map.get(label, "#94a3b8")
 
@@ -306,7 +356,7 @@ with tab2:
                     locations=lat_lngs,
                     color=c,
                     weight=5,
-                    opacity=0.85,
+                    opacity=0.9,
                     tooltip=f"{label} - {p.get('duration_min', 0):.1f} min | Mean: {p.get('thermal', {}).get('mean_c', 0):.2f}°C",
                 ).add_to(m)
 
@@ -388,45 +438,34 @@ with tab3:
 
     with col_e2:
         if st.session_state.last_env_params:
-            data = st.session_state.last_env_params
-            # Extract first location if nested
-            loc = {}
-            if isinstance(data, dict):
-                locations = data.get("locations", [])
-                if locations:
-                    loc = locations[0]
-                else:
-                    loc = data
-
-            params = loc.get("parameters", {})
-            solar = loc.get("solar_irradiance", {})
+            m = extract_environmental_metrics(st.session_state.last_env_params)
 
             st.subheader("Microclimate Readings")
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Heat Index", f"{params.get('heat_index_celsius', [0])[0]:.1f} °C")
-            c2.metric("Apparent Temp", f"{params.get('apparent_temperature_celsius', [0])[0]:.1f} °C")
-            c3.metric("Wet Bulb Temp", f"{params.get('wet_bulb_temperature_celsius', [0])[0]:.1f} °C")
-            c4.metric("Relative Humidity", f"{params.get('relative_humidity_percent', [0])[0]:.1f} %")
+            c1.metric("Heat Index", f"{m['heat_index']:.1f} °C")
+            c2.metric("Apparent Temp", f"{m['apparent_temp']:.1f} °C")
+            c3.metric("Wet Bulb Temp", f"{m['wet_bulb']:.1f} °C")
+            c4.metric("Relative Humidity", f"{m['humidity']:.1f} %")
 
             st.divider()
 
             # Air Quality
             st.subheader("Air Quality Breakdown")
             aq_cols = st.columns(5)
-            aq_cols[0].metric("AQI (Overall)", f"{params.get('air_quality:idx', [0])[0]:.1f}")
-            aq_cols[1].metric("PM2.5", f"{params.get('air_quality_pm2p5:idx', [0])[0]:.1f}")
-            aq_cols[2].metric("PM10", f"{params.get('air_quality_pm10:idx', [0])[0]:.1f}")
-            aq_cols[3].metric("NO₂", f"{params.get('air_quality_no2:idx', [0])[0]:.1f}")
-            aq_cols[4].metric("O₃ (Ozone)", f"{params.get('air_quality_o3:idx', [0])[0]:.1f}")
+            aq_cols[0].metric("AQI (Overall)", f"{m['aqi']:.1f}")
+            aq_cols[1].metric("PM2.5", f"{m['pm25']:.1f}")
+            aq_cols[2].metric("PM10", f"{m['pm10']:.1f}")
+            aq_cols[3].metric("NO₂", f"{m['no2']:.1f}")
+            aq_cols[4].metric("O₃ (Ozone)", f"{m['o3']:.1f}")
 
             st.divider()
 
             # Solar Irradiance
             st.subheader("Solar Irradiance Profile")
             s1, s2, s3 = st.columns(3)
-            s1.metric("GHI (Global Horizontal)", f"{solar.get('ghi_wm2', [0])[0] if isinstance(solar.get('ghi_wm2'), list) else 0} W/m²")
-            s2.metric("DNI (Direct Normal)", f"{solar.get('dni_wm2', [0])[0] if isinstance(solar.get('dni_wm2'), list) else 0} W/m²")
-            s3.metric("DHI (Diffuse Horizontal)", f"{solar.get('dhi_wm2', [0])[0] if isinstance(solar.get('dhi_wm2'), list) else 0} W/m²")
+            s1.metric("GHI (Global Horizontal)", f"{m['ghi']:.1f} W/m²")
+            s2.metric("DNI (Direct Normal)", f"{m['dni']:.1f} W/m²")
+            s3.metric("DHI (Diffuse Horizontal)", f"{m['dhi']:.1f} W/m²")
 
         else:
             st.info("👈 Enter coordinate parameters and click 'Analyze Environmental Conditions'.")

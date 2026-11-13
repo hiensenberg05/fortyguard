@@ -14,6 +14,7 @@ class ThermalAgent:
     """
     Intelligent Agent powered by Grok (xAI) or Groq LPUs,
     orchestrating tool-calling via the FortyGuard MCP Gateway.
+    Includes token payload compression to avoid rate limits.
     """
 
     def __init__(
@@ -104,7 +105,6 @@ class ThermalAgent:
 
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Dispatch tool calls to MCP client with safe coordinate auto-correction."""
-        # Auto-correct flipped US longitudes
         def fix_lon(lon):
             if isinstance(lon, (int, float)) and 65.0 <= lon <= 130.0:
                 return -abs(lon)
@@ -140,6 +140,32 @@ class ThermalAgent:
 
         return {"ok": False, "error": f"Unknown tool: {name}"}
 
+    def _compress_for_llm(self, name: str, result: Dict[str, Any]) -> str:
+        """
+        Compress tool result for LLM input to prevent blowing past token limits.
+        Strips thousands of raw GeoJSON coordinates while retaining thermal summary.
+        """
+        if name == "temperature_routing" and result.get("ok"):
+            routes = result.get("routes", [])
+            summary_list = []
+            for r in routes:
+                p = r.get("properties", {})
+                summary_list.append({
+                    "label": p.get("label"),
+                    "distance_km": p.get("distance_km"),
+                    "duration_min": p.get("duration_min"),
+                    "thermal": p.get("thermal"),
+                })
+            compressed = {
+                "ok": True,
+                "activity_id": result.get("activity_id"),
+                "total_routes": len(routes),
+                "routes": summary_list,
+                "note": "Complete GeoJSON path geometry is retained for map visualization.",
+            }
+            return json.dumps(compressed)
+        return json.dumps(result)
+
     def chat(self, user_message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
         Execute an agent turn with multi-step tool execution loop.
@@ -154,7 +180,6 @@ class ThermalAgent:
         artifacts = {}
         final_text = ""
 
-        # Loop up to 3 turns for tool calling
         for iteration in range(3):
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -193,14 +218,17 @@ class ThermalAgent:
                 elif fn_name == "env_params" and tool_result.get("ok"):
                     artifacts["env_params"] = tool_result.get("data", {})
 
+                # Compress payload to avoid 413 token limit
+                compressed_content = self._compress_for_llm(fn_name, tool_result)
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call.id,
                     "name": fn_name,
-                    "content": json.dumps(tool_result),
+                    "content": compressed_content,
                 })
 
-        # Final cleanup: strip any leaked XML tool tags from Qwen
+        # Strip any leaked XML tool tags
         final_text = re.sub(r"<tool_call>[\s\S]*?</tool_call>", "", final_text).strip()
         final_text = re.sub(r"<tool_call>[\s\S]*", "", final_text).strip()
 

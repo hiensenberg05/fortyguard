@@ -14,7 +14,7 @@ class ThermalAgent:
     """
     Intelligent Agent powered by Grok (xAI) or Groq LPUs,
     orchestrating tool-calling via the FortyGuard MCP Gateway.
-    Includes token payload compression to avoid rate limits.
+    Includes token payload compression to avoid 413 rate limits.
     """
 
     def __init__(
@@ -54,8 +54,8 @@ class ThermalAgent:
         )
 
     def _get_mcp_tools_definitions(self) -> List[Dict[str, Any]]:
-        """Convert FortyGuard MCP tool schemas into OpenAI/Groq function calling format."""
-        tools = [
+        """Canonical FortyGuard MCP tool schemas for LLM tool calling."""
+        return [
             {
                 "type": "function",
                 "function": {
@@ -100,29 +100,10 @@ class ThermalAgent:
                     },
                 },
             },
-            {
-                "type": "function",
-                "function": {
-                    "name": "tempperature_routing",
-                    "description": "Alias for temperature_routing.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "origin_lat": {"type": "number"},
-                            "origin_lon": {"type": "number"},
-                            "dest_lat": {"type": "number"},
-                            "dest_lon": {"type": "number"},
-                            "departure_time": {"type": "string"},
-                        },
-                        "required": ["origin_lat", "origin_lon", "dest_lat", "dest_lon", "departure_time"],
-                    },
-                },
-            },
         ]
-        return tools
 
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Dispatch tool calls to MCP client with safe coordinate auto-correction."""
+        """Dispatch tool calls to MCP client with safe coordinate auto-correction and fuzzy name matching."""
         def fix_lon(lon):
             if isinstance(lon, (int, float)) and 65.0 <= lon <= 130.0:
                 return -abs(lon)
@@ -135,35 +116,37 @@ class ThermalAgent:
         if "dest_lon" in args:
             args["dest_lon"] = fix_lon(args["dest_lon"])
 
-        if name in ["credit_balance"]:
+        name_clean = name.lower()
+        if "balance" in name_clean or "credit" in name_clean:
             return self.mcp.get_credit_balance()
 
-        elif name in ["env_params", "environment_params"]:
+        elif "env" in name_clean:
             return self.mcp.get_env_params(
-                latitude=args["latitude"],
-                longitude=args["longitude"],
-                temperature=args["temperature"],
-                date_str=args["date_str"],
+                latitude=args.get("latitude", 33.4484),
+                longitude=args.get("longitude", -112.0740),
+                temperature=args.get("temperature", 35.0),
+                date_str=args.get("date_str", "2024-07-15"),
                 time_str=args.get("time_str", "12:00"),
             )
 
-        elif name in ["temperature_routing", "tempperature_routing"]:
-            origin = {"lat": args["origin_lat"], "lon": args["origin_lon"]}
-            dest = {"lat": args["dest_lat"], "lon": args["dest_lon"]}
+        elif "routing" in name_clean or "route" in name_clean:
+            origin = {"lat": args.get("origin_lat", 33.4484), "lon": args.get("origin_lon", -112.0740)}
+            dest = {"lat": args.get("dest_lat", 33.5092), "lon": args.get("dest_lon", -112.0362)}
             return self.mcp.get_temperature_routing(
                 origin=origin,
                 destination=dest,
-                departure_time=args["departure_time"],
+                departure_time=args.get("departure_time", "2024-07-15T14:00:00Z"),
             )
 
         return {"ok": False, "error": f"Unknown tool: {name}"}
 
     def _compress_for_llm(self, name: str, result: Dict[str, Any]) -> str:
         """
-        Compress tool result for LLM input to prevent blowing past token limits.
+        Compress tool result for LLM input to strictly prevent blowing token limits.
         Strips thousands of raw GeoJSON coordinates while retaining thermal summary.
         """
-        if name == "temperature_routing" and result.get("ok"):
+        name_lower = name.lower()
+        if "routing" in name_lower or "route" in name_lower or "routes" in result:
             routes = result.get("routes", [])
             summary_list = []
             for r in routes:
@@ -179,10 +162,19 @@ class ThermalAgent:
                 "activity_id": result.get("activity_id"),
                 "total_routes": len(routes),
                 "routes": summary_list,
-                "note": "Complete GeoJSON path geometry is retained for map visualization.",
+                "note": "GeoJSON coordinate lines are rendered directly on the UI map.",
             }
             return json.dumps(compressed)
-        return json.dumps(result)
+
+        # General guard for any response: keep within 2000 characters
+        raw_json = json.dumps(result)
+        if len(raw_json) > 2000:
+            return json.dumps({
+                "ok": result.get("ok", True),
+                "summary": str(result.get("data", result))[:1500],
+                "note": "Payload summarized to respect model token limits."
+            })
+        return raw_json
 
     def chat(self, user_message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
@@ -190,7 +182,8 @@ class ThermalAgent:
         """
         messages = [{"role": "system", "content": self.system_prompt}]
         if chat_history:
-            messages.extend(chat_history)
+            # Keep only the last 4 messages to avoid token bloat across turns
+            messages.extend(chat_history[-4:])
         messages.append({"role": "user", "content": user_message})
 
         tools = self._get_mcp_tools_definitions()
@@ -199,13 +192,27 @@ class ThermalAgent:
         final_text = ""
 
         for iteration in range(3):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0.2,
-            )
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.2,
+                )
+            except Exception as e:
+                # If tool call fails with a validation error, fall back to plain text answer
+                err_str = str(e)
+                if "tool_use_failed" in err_str or "400" in err_str:
+                    fallback_resp = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=0.3,
+                    )
+                    final_text = fallback_resp.choices[0].message.content or "Completed analysis."
+                    break
+                else:
+                    raise e
 
             choice = response.choices[0]
             tool_calls = getattr(choice.message, "tool_calls", None)
@@ -231,9 +238,9 @@ class ThermalAgent:
                     "result": tool_result,
                 })
 
-                if fn_name == "temperature_routing" and tool_result.get("ok"):
+                if ("routing" in fn_name.lower() or "routes" in tool_result) and tool_result.get("ok"):
                     artifacts["routes"] = tool_result.get("routes", [])
-                elif fn_name == "env_params" and tool_result.get("ok"):
+                elif "env" in fn_name.lower() and tool_result.get("ok"):
                     artifacts["env_params"] = tool_result.get("data", {})
 
                 # Compress payload to avoid 413 token limit

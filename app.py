@@ -187,8 +187,16 @@ with tab1:
     st.header("Thermal Intelligence AI Agent")
     st.markdown("Powered by **Groq / Grok** tool calling through the **FortyGuard MCP Gateway**.")
 
-    # Quick Prompts
-    st.write("**Quick Inquiries:**")
+    # Quick Prompts & Clear Chat
+    col_qp1, col_qp2 = st.columns([5, 1])
+    with col_qp1:
+        st.write("**Quick Inquiries:**")
+    with col_qp2:
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.chat_history = []
+            st.session_state.agent_messages = []
+            st.rerun()
+
     qp_cols = st.columns(4)
     preset_prompt = None
     if qp_cols[0].button("📍 Coolest Route (Phoenix)", use_container_width=True):

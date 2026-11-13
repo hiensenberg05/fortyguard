@@ -6,17 +6,29 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
 
-# Load environment variables
+# Load environment variables from local .env if present
 load_dotenv(dotenv_path=ENV_PATH)
 
+def get_secret(key: str, default: str = "") -> str:
+    """Retrieve secret from os.environ or Streamlit Cloud st.secrets."""
+    val = os.getenv(key)
+    if not val:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and key in st.secrets:
+                val = st.secrets[key]
+        except Exception:
+            pass
+    return (val or default).strip()
+
 # FortyGuard Configurations
-FORTY_GUARD_API_KEY = os.getenv("FORTY_GUARD_API_KEY", "").strip()
+FORTY_GUARD_API_KEY = get_secret("FORTY_GUARD_API_KEY")
 FORTY_GUARD_MCP_URL = "https://tos-mcp.app.fortyguard.com/mcp"
 FORTY_GUARD_REST_BASE = "https://api.fortyguard.com/v1"
 
 # LLM Configurations
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-GROK_API_KEY = os.getenv("GROK_API_KEY", os.getenv("XAI_API_KEY", "")).strip()
+GROQ_API_KEY = get_secret("GROQ_API_KEY")
+GROK_API_KEY = get_secret("GROK_API_KEY", get_secret("XAI_API_KEY"))
 
 # Default Models
 DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"

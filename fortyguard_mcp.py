@@ -153,6 +153,10 @@ class FortyGuardMCPClient:
         Query point-level environmental metrics (heat index, wet bulb, AQI, solar irradiance).
         Validates US bounding box before dispatching.
         """
+        # Auto-correct flipped US longitudes (e.g. 112.074 -> -112.074)
+        if 65.0 <= longitude <= 130.0:
+            longitude = -abs(longitude)
+
         if not is_within_us_bounds(latitude, longitude):
             return {
                 "ok": False,
@@ -182,6 +186,12 @@ class FortyGuardMCPClient:
         Submit a temperature-aware routing request and poll temperature_routing_read until complete.
         Returns GeoJSON routes with thermal analytics (Fastest, Coolest, Balanced).
         """
+        # Auto-correct flipped US longitudes
+        if 65.0 <= origin.get("lon", 0) <= 130.0:
+            origin["lon"] = -abs(origin["lon"])
+        if 65.0 <= destination.get("lon", 0) <= 130.0:
+            destination["lon"] = -abs(destination["lon"])
+
         # Validate US bounds for origin and destination
         if not is_within_us_bounds(origin["lat"], origin["lon"]):
             return {"ok": False, "error": f"Origin ({origin['lat']}, {origin['lon']}) is outside US bounds."}

@@ -100,6 +100,24 @@ class ThermalAgent:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "tempperature_routing",
+                    "description": "Alias for temperature_routing.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "origin_lat": {"type": "number"},
+                            "origin_lon": {"type": "number"},
+                            "dest_lat": {"type": "number"},
+                            "dest_lon": {"type": "number"},
+                            "departure_time": {"type": "string"},
+                        },
+                        "required": ["origin_lat", "origin_lon", "dest_lat", "dest_lon", "departure_time"],
+                    },
+                },
+            },
         ]
         return tools
 
@@ -117,10 +135,10 @@ class ThermalAgent:
         if "dest_lon" in args:
             args["dest_lon"] = fix_lon(args["dest_lon"])
 
-        if name == "credit_balance":
+        if name in ["credit_balance"]:
             return self.mcp.get_credit_balance()
 
-        elif name == "env_params":
+        elif name in ["env_params", "environment_params"]:
             return self.mcp.get_env_params(
                 latitude=args["latitude"],
                 longitude=args["longitude"],
@@ -129,7 +147,7 @@ class ThermalAgent:
                 time_str=args.get("time_str", "12:00"),
             )
 
-        elif name == "temperature_routing":
+        elif name in ["temperature_routing", "tempperature_routing"]:
             origin = {"lat": args["origin_lat"], "lon": args["origin_lon"]}
             dest = {"lat": args["dest_lat"], "lon": args["dest_lon"]}
             return self.mcp.get_temperature_routing(
